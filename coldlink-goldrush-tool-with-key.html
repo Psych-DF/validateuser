@@ -1,0 +1,151 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Coldlink Token Checker</title>
+  <style>
+    body {
+      background-color: #0d0d0d;
+      color: #e0e0e0;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    input {
+      padding: 10px;
+      font-size: 1rem;
+      width: 400px;
+      max-width: 90%;
+      border-radius: 4px;
+      border: none;
+      background-color: #1f1f1f;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    table {
+      width: 100%;
+      max-width: 900px;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid #333;
+    }
+    th {
+      background-color: #222;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h2>🔍 Coldlink Token Checker (ETH only)</h2>
+  <input type="text" id="contract" placeholder="Enter contract address (0x...)" />
+  <button onclick="lookup()">Check Holders</button>
+  <div id="status">Status: Awaiting input...</div>
+  <table id="results" style="display:none;">
+    <thead>
+      <tr>
+        <th>Origin Wallet</th>
+        <th>Linked Wallet</th>
+        <th>Token Count</th>
+      </tr>
+    </thead>
+    <tbody id="results-body">
+    </tbody>
+  </table>
+
+  <script>
+    async function lookup() {
+      const contract = document.getElementById('contract').value.trim();
+      const status = document.getElementById('status');
+      const resultsTable = document.getElementById('results');
+      const resultsBody = document.getElementById('results-body');
+      resultsTable.style.display = 'none';
+      resultsBody.innerHTML = '';
+
+      if (!contract.startsWith('0x') || contract.length !== 42) {
+        status.innerText = '❌ Invalid contract address.';
+        return;
+      }
+
+      status.innerText = 'Fetching token holders from GoldRush...';
+
+      const goldrushData = await fetch(`https://api.covalenthq.com/v1/1/tokens/${contract}/token_holders/?key=cqt_rQjxQxXbBKvhGp96d4p8H3FYhBCP`)
+        .then(res => res.json())
+        .then(data => data.data?.items || [])
+        .catch(err => {
+          console.error(err);
+          status.innerText = '❌ Failed to fetch from GoldRush.';
+          return [];
+        });
+
+      status.innerText = 'Fetching linked wallets from Coldlink...';
+
+      const coldlinkData = await fetch('https://api.coldlink.xyz/linked?source_type=ETH&key=1d50702a40160653098ab37d0b39db83')
+        .then(res => res.json())
+        .catch(err => {
+          console.error(err);
+          status.innerText = '❌ Failed to fetch from Coldlink.';
+          return [];
+        });
+
+      if (!coldlinkData || !Array.isArray(coldlinkData)) {
+        status.innerText = '❌ Coldlink returned an invalid response.';
+        return;
+      }
+
+      const coldlinkMap = {};
+      coldlinkData.forEach(link => {
+        coldlinkMap[link.origin_address.toLowerCase()] = link.linked_address;
+      });
+
+      const matches = goldrushData
+        .filter(holder => coldlinkMap[holder.address.toLowerCase()])
+        .map(holder => ({
+          origin: holder.address,
+          linked: coldlinkMap[holder.address.toLowerCase()],
+          balance: holder.balance
+        }));
+
+      if (matches.length === 0) {
+        status.innerText = '✅ No Coldlinks found holding tokens from this contract.';
+        return;
+      }
+
+      resultsTable.style.display = 'table';
+      matches.forEach(row => {
+        resultsBody.innerHTML += `
+          <tr>
+            <td>${row.origin}</td>
+            <td>${row.linked}</td>
+            <td>${row.balance}</td>
+          </tr>
+        `;
+      });
+
+      status.innerText = `✅ ${matches.length} match(es) found.`;
+    }
+  </script>
+</body>
+</html>
